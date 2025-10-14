@@ -6,6 +6,7 @@ from firebase_admin import credentials, firestore
 from dotenv import load_dotenv
 import json
 import os
+import sys
 
 # --- LOAD ENV VARIABLES ---
 load_dotenv() 
@@ -24,6 +25,19 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+print("🟢 Starting serverless function...", file=sys.stderr)
+
+firebase_creds = os.getenv("FIREBASE_CREDENTIALS")
+if not firebase_creds:
+    print("❌ FIREBASE_CREDENTIALS not found!", file=sys.stderr)
+else:
+    try:
+        cred_dict = json.loads(firebase_creds)
+        print("✅ Firebase credentials loaded successfully!", file=sys.stderr)
+    except Exception as e:
+        print("⚠️ Firebase credentials JSON parse error:", e, file=sys.stderr)
+
 
 # --- INIT FIREBASE ---
 if not firebase_admin._apps:
