@@ -1,26 +1,47 @@
 from fastapi import FastAPI, Request
 from datetime import datetime
 from fastapi.middleware.cors import CORSMiddleware
+import firebase_admin
+from firebase_admin import credentials, firestore
+from dotenv import load_dotenv
+import json
+import os
 
+# --- LOAD ENV VARIABLES ---
+load_dotenv() 
+
+# --- INIT FASTAPI ---
 app = FastAPI()
 
+# --- CORS SETUP ---
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000",
-                    "https://tree-d-dashboard.vercel.app/"
-    ],  # or ["*"] for testing
+    allow_origins=[
+        "http://localhost:3000",
+        "https://tree-d-dashboard.vercel.app/",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# In-memory storage
-stored_data = []
-stored_data2 = []
+# --- INIT FIREBASE ---
+if not firebase_admin._apps:
+    firebase_creds = os.getenv("FIREBASE_CREDENTIALS")
+    if not firebase_creds:
+        raise ValueError("Missing FIREBASE_CREDENTIALS environment variable!")
+
+    cred_dict = json.loads(firebase_creds)
+    cred = credentials.Certificate(cred_dict)
+    firebase_admin.initialize_app(cred)
+
+db = firestore.client()
+
+# ----------------------------- ROUTES -----------------------------
 
 @app.get("/gettime")
 def get_time():
-    """Return the current server time and date."""
+    """Return current server time and date."""
     now = datetime.now()
     return {
         "current_time": now.strftime("%H:%M:%S"),
@@ -28,46 +49,54 @@ def get_time():
         "timestamp": now.isoformat()
     }
 
+# --- stored_data = Type 1 ---
 @app.post("/postdata")
 async def post_data(request: Request):
-    """Receive JSON data and store/update by device ID."""
+    """Store or update device data in Firestore (collection: stored_data1)."""
     data = await request.json()
     device_id = data.get("id")
 
-    # check if device exists in stored_data
-    for i, existing in enumerate(stored_data):
-        if existing["id"] == device_id:
-            # overwrite the old data with the new one
-            stored_data[i] = data
-            break
-    else:
-        # if device not found, add it
-        stored_data.append(data)
+    if not device_id:
+        return {"error": "Missing 'id' in data"}
 
-    print("Current stored_data:", stored_data)
-    return {"message": "Data stored successfully", "stored_data": stored_data}
+    doc_ref = db.collection("stored_data1").document(device_id)
+    doc_ref.set(data)
+
+    return {"message": "Data stored successfully in stored_data1", "data": data}
+
 
 @app.get("/getdata")
 def get_data():
-    """Return all stored data."""
-    return {"stored_data": stored_data2}
+    """Return all data from Firestore (collection: stored_data2)."""
+    docs = db.collection("stored_data2").stream()
+    all_data = [doc.to_dict() for doc in docs]
+    return {"stored_data": all_data}
 
+
+# --- stored_data2 = Type 2 ---
 @app.post("/poststoreddata")
 async def post_stored_data(request: Request):
-    """Same logic for stored_data2."""
+    """Store or update secondary data in Firestore (collection: stored_data2)."""
     data = await request.json()
     device_id = data.get("id")
 
-    for i, existing in enumerate(stored_data2):
-        if existing["id"] == device_id:
-            stored_data2[i] = data
-            break
-    else:
-        stored_data2.append(data)
+    if not device_id:
+        return {"error": "Missing 'id' in data"}
 
-    print("Current stored_data2:", stored_data2)
-    return {"message": "Data stored successfully", "stored_data2": stored_data2}
+    doc_ref = db.collection("stored_data2").document(device_id)
+    doc_ref.set(data)
 
+    return {"message": "Data stored successfully in stored_data2", "data": data}
+
+
+@app.get("/getstoreddata")
+def get_stored_data():
+    """Return all data from Firestore (collection: stored_data2)."""
+    docs = db.collection("stored_data2").stream()
+    all_data = [doc.to_dict() for doc in docs]
+    return {"stored_data2": all_data}
+
+# --- RUN APP ---
 if __name__ == "__main__":
     import uvicorn
     import pathlib, os
