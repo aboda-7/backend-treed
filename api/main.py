@@ -96,19 +96,4 @@ def get_stored_data():
     all_data = [doc.to_dict() for doc in docs]
     return {"stored_data2": all_data}
 
-# --- RUN APP ---
-if __name__ == "__main__":
-    import uvicorn
-    import pathlib, os
 
-    here = pathlib.Path(__file__).parent.resolve()
-    os.chdir(here)
-
-    module_name = pathlib.Path(__file__).stem
-    uvicorn.run(
-        f"{module_name}:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=True,
-        reload_dirs=[str(here)]
-    )
