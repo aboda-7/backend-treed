@@ -1,15 +1,15 @@
-# Tree-D Backend
+# Tree'd Backend
 
-A FastAPI-based backend service for a museum audio guide application that tracks visitor interactions with artifacts through QR code scans and provides analytics on audio completion rates.
+A FastAPI-based backend service for a museum audio guide application that tracks visitor interactions with artifacts through the Tree'd Handset scans and provides analytics on audio completion rates.
 
 ## Overview
 
 Tree-D Backend is a RESTful API that powers an interactive museum experience. The system:
-- Tracks visitor scans of museum artifact QR codes
+- Tracks visitor scans of museum artifacts
 - Records multi-language audio playback sessions
 - Calculates completion rates based on listening behavior (90% threshold)
 - Provides secure analytics endpoints for museum administrators
-- Supports 24 artifacts across 10 languages
+- Supports 9 artifacts across 5 languages
 
 The backend integrates with Firebase for authentication and data storage, and is designed for serverless deployment on Vercel.
 
