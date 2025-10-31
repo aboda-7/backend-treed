@@ -122,7 +122,7 @@ AUDIO_LENGTHS = {
     "st12": {"ar": 10, "en": 110, "fr": 115, "sp": 118, "de": 112, "ja": 125, "ko": 122, "ru": 117, "nl": 113, "zh": 121},
     "st13": {"ar": 5, "en": 85, "fr": 88, "sp": 92, "de": 87, "ja": 95, "ko": 93, "ru": 89, "nl": 86, "zh": 94},
     "st14": {"ar": 5, "en": 85, "fr": 88, "sp": 92, "de": 87, "ja": 95, "ko": 93, "ru": 89, "nl": 86, "zh": 94},
-    "st15": {"ar": 5, "en": 85, "fr": 88, "sp": 92, "de": 87, "ja": 95, "ko": 93, "ru": 89, "nl": 86, "zh": 94},
+    "st15": {"ar": 10, "en": 85, "fr": 88, "sp": 92, "de": 87, "ja": 95, "ko": 93, "ru": 89, "nl": 86, "zh": 94},
     "st16": {"ar": 5, "en": 85, "fr": 88, "sp": 92, "de": 87, "ja": 95, "ko": 93, "ru": 89, "nl": 86, "zh": 94},
     "st17": {"ar": 5, "en": 85, "fr": 88, "sp": 92, "de": 87, "ja": 95, "ko": 93, "ru": 89, "nl": 86, "zh": 94},
     "st18": {"ar": 5, "en": 85, "fr": 88, "sp": 92, "de": 87, "ja": 95, "ko": 93, "ru": 89, "nl": 86, "zh": 94},
@@ -130,17 +130,14 @@ AUDIO_LENGTHS = {
     "st21": {"ar": 5, "en": 85, "fr": 88, "sp": 92, "de": 87, "ja": 95, "ko": 93, "ru": 89, "nl": 86, "zh": 94},
     "st22": {"ar": 5, "en": 85, "fr": 88, "sp": 92, "de": 87, "ja": 95, "ko": 93, "ru": 89, "nl": 86, "zh": 94},
     "st23": {"ar": 5, "en": 85, "fr": 88, "sp": 92, "de": 87, "ja": 95, "ko": 93, "ru": 89, "nl": 86, "zh": 94},
-    "st24": {"ar": 5, "en": 85, "fr": 88, "sp": 92, "de": 87, "ja": 95, "ko": 93, "ru": 89, "nl": 86, "zh": 94},
+    "st24": {"ar": 10, "en": 5, "fr": 88, "sp": 92, "de": 87, "ja": 95, "ko": 93, "ru": 89, "nl": 86, "zh": 94},
     
 }
-
-# ----------------------------------------------------------------
-#  --- ROUTES ---
-# ----------------------------------------------------------------
 
 @app.get("/gettime")
 def get_time():
     now = datetime.now()
+    print(f"⏰ [DEBUG] Time requested: {now}")
     return {
         "current_time": now.strftime("%H:%M:%S"),
         "current_date": now.strftime("%Y-%m-%d"),
@@ -151,8 +148,11 @@ def get_time():
 @app.post("/postdata")
 async def post_data(request: Request):
     data = await request.json()
+    print(f"\n🛰️ [POSTDATA] Incoming data: {data}")
+
     raw_device_id = data.get("id")
     if not raw_device_id:
+        print("⚠️ [ERROR] Missing device ID")
         return {"error": "Missing 'id' in data"}
 
     device_id = str(raw_device_id).strip().lower()
@@ -160,9 +160,9 @@ async def post_data(request: Request):
     language_name = (data.get("language") or "").strip()
     explicit_event = (data.get("event") or data.get("type") or "").strip().lower()
 
-    # Store raw data
-    db.collection("stored_data1").document(device_id).set(data)
-    
+    print(f"📱 Device ID: {device_id}")
+    print(f"🗿 Statue: {statue_name} | 🗣️ Language: {language_name} | 📍 Event: {explicit_event}")
+
     lang_key = LANG_TO_KEY.get(language_name)
     slot = STATUE_TO_SLOT.get(statue_name)
 
@@ -171,178 +171,156 @@ async def post_data(request: Request):
     else:
         event_type = "statue" if slot else ("language" if lang_key else None)
 
+    print(f"🧠 Event type resolved: {event_type}")
+
+    prev_doc = db.collection("stored_data1").document(device_id).get()
+    prev_data = prev_doc.to_dict() if prev_doc.exists else None
+    print(f"📦 Previous scan: {prev_data}")
+
+    is_turnoff = statue_name == "NULL" and language_name == "NULL"
+    print(f"🔌 Turnoff detected: {is_turnoff}")
+
+    # --- COMPLETION TRACKING ---
+    if event_type == "statue" and slot and lang_key and prev_data:
+        prev_statue = prev_data.get("statue", "")
+        prev_language = prev_data.get("language", "")
+        prev_was_turnoff = prev_statue == "NULL" and prev_language == "NULL"
+
+        if not prev_was_turnoff:
+            prev_slot = STATUE_TO_SLOT.get(prev_statue)
+            prev_lang = LANG_TO_KEY.get(prev_language)
+            prev_time = prev_data.get("timestamp")
+            print(f"🕓 Prev slot/lang: {prev_slot}/{prev_lang}, time={prev_time}")
+
+            if prev_slot and prev_lang and prev_time:
+                current_time = datetime.now()
+                prev_datetime = datetime.fromisoformat(prev_time.replace('Z', '+00:00')) if isinstance(prev_time, str) else prev_time
+                time_diff = (current_time - prev_datetime).total_seconds()
+                print(f"⏱️ Time diff: {time_diff}s")
+
+                if prev_slot in AUDIO_LENGTHS and prev_lang in AUDIO_LENGTHS[prev_slot]:
+                    audio_length = AUDIO_LENGTHS[prev_slot][prev_lang]
+                    threshold = audio_length * 0.9
+                    print(f"🎧 Audio length={audio_length}s, threshold={threshold}s")
+
+                    if time_diff >= threshold:
+                        print(f"✅ Completed listen detected for {prev_slot}-{prev_lang}")
+                        completion_ref = db.collection("stored_data2").document(device_id)
+                        completion_ref.set({
+                            "completions": {
+                                prev_slot: {
+                                    prev_lang: firestore.Increment(1)
+                                }
+                            }
+                        }, merge=True)
+
+    elif is_turnoff and prev_data:
+        prev_statue = prev_data.get("statue", "")
+        prev_language = prev_data.get("language", "")
+        prev_was_turnoff = prev_statue == "NULL" and prev_language == "NULL"
+
+        if not prev_was_turnoff:
+            prev_slot = STATUE_TO_SLOT.get(prev_statue)
+            prev_lang = LANG_TO_KEY.get(prev_language)
+            prev_time = prev_data.get("timestamp")
+            print(f"⚡ Turnoff -> Prev slot/lang: {prev_slot}/{prev_lang}, time={prev_time}")
+
+            if prev_slot and prev_lang and prev_time:
+                current_time = datetime.now()
+                prev_datetime = datetime.fromisoformat(prev_time.replace('Z', '+00:00')) if isinstance(prev_time, str) else prev_time
+                time_diff = (current_time - prev_datetime).total_seconds()
+                print(f"⏱️ Turnoff Time diff: {time_diff}s")
+
+                if prev_slot in AUDIO_LENGTHS and prev_lang in AUDIO_LENGTHS[prev_slot]:
+                    audio_length = AUDIO_LENGTHS[prev_slot][prev_lang]
+                    threshold = audio_length * 0.9
+
+                    if time_diff >= threshold:
+                        print(f"✅ Completed listen (turnoff) for {prev_slot}-{prev_lang}")
+                        completion_ref = db.collection("stored_data2").document(device_id)
+                        completion_ref.set({
+                            "completions": {
+                                prev_slot: {
+                                    prev_lang: firestore.Increment(1)
+                                }
+                            }
+                        }, merge=True)
+
+    data["timestamp"] = datetime.now().isoformat()
+    db.collection("stored_data1").document(device_id).set(data)
+    print(f"💾 [DB] Stored current scan for {device_id}")
+
     doc_ref = db.collection("stored_data2").document(device_id)
-    
-    # Store individual scan event for completion tracking
+
     if event_type == "statue" and slot and lang_key:
-        # Increment counter (existing logic)
+        print(f"📊 Incrementing artifacts.{slot}.{lang_key}")
         doc_ref.set({"artifacts": {slot: {lang_key: firestore.Increment(1)}}}, merge=True)
-        
-        # NEW: Store individual scan event with timestamp
-        scan_event = {
-            "device_id": device_id,
-            "artifact": slot,
-            "language": lang_key,
-            "timestamp": firestore.SERVER_TIMESTAMP,
-            "statue_name": statue_name,
-            "language_name": language_name
-        }
-        db.collection("scan_events").add(scan_event)
-        
         return {"message": f"Incremented artifacts.{slot}.{lang_key}"}
 
     if event_type == "language" and lang_key:
+        print(f"📊 Incrementing language.{lang_key}")
         doc_ref.set({"language": {lang_key: firestore.Increment(1)}}, merge=True)
         return {"message": f"Incremented language.{lang_key}"}
 
+    print("ℹ️ No increment performed.")
     return {"message": "No increment performed"}
 
 
 @app.get("/getdata")
 def get_data(user=Depends(verify_firebase_token)):
-    """
-    Secure endpoint — requires valid Firebase auth token.
-    """
+    print(f"📤 [GETDATA] Requested by UID: {user['uid']}")
     docs = db.collection("stored_data2").stream()
     all_data = [{"id": d.id, **(d.to_dict() or {})} for d in docs]
+    print(f"🧾 Retrieved {len(all_data)} documents.")
     return {"stored_data": all_data, "user_uid": user["uid"]}
 
 
 @app.get("/analytics/completion-rates")
 def get_completion_rates(user=Depends(verify_firebase_token)):
-    """
-    Calculate completion rates for each artifact/language combo.
-    Returns % of users who listened to 90%+ of the audio.
-    """
+    print(f"📈 [ANALYTICS] Completion rates requested by UID: {user['uid']}")
+    docs = db.collection("stored_data2").stream()
     
-    print("\n" + "="*80)
-    print("🔍 STARTING COMPLETION RATE CALCULATION")
-    print("="*80)
-    
-    # Get all scan events ordered by timestamp
-    scan_events = db.collection("scan_events").order_by("timestamp").stream()
-    
-    # Group scans by device_id
-    device_scans = {}
-    total_events = 0
-    for event in scan_events:
-        event_data = event.to_dict()
-        device_id = event_data.get("device_id")
-        total_events += 1
-        
-        if device_id not in device_scans:
-            device_scans[device_id] = []
-        
-        device_scans[device_id].append({
-            "artifact": event_data.get("artifact"),
-            "language": event_data.get("language"),
-            "timestamp": event_data.get("timestamp"),
-        })
-    
-    print(f"\n📊 Total scan events found: {total_events}")
-    print(f"👥 Unique devices: {len(device_scans)}")
-    
-    # Calculate completion rates per artifact/language
-    completion_stats = {}
-    
-    for device_id, scans in device_scans.items():
-        print(f"\n{'='*60}")
-        print(f"📱 Device: {device_id}")
-        print(f"   Total scans: {len(scans)}")
-        
-        for i in range(len(scans) - 1):
-            current_scan = scans[i]
-            next_scan = scans[i + 1]
-            
-            artifact = current_scan["artifact"]
-            language = current_scan["language"]
-            
-            print(f"\n   Scan {i+1} -> {i+2}:")
-            print(f"   Current: {artifact} ({language})")
-            print(f"   Next: {next_scan['artifact']} ({next_scan['language']})")
-            
-            # Skip if we don't have audio length data
-            if artifact not in AUDIO_LENGTHS or language not in AUDIO_LENGTHS[artifact]:
-                print(f"   ⚠️  SKIPPED - No audio length data for {artifact}_{language}")
-                continue
-            
-            audio_length = AUDIO_LENGTHS[artifact][language]
-            threshold = audio_length * 0.9  # 90% threshold
-            
-            # Calculate time between scans
-            time_diff = (next_scan["timestamp"] - current_scan["timestamp"]).total_seconds()
-            
-            print(f"   ⏱️  Audio length: {audio_length}s")
-            print(f"   ⏱️  90% threshold: {threshold}s")
-            print(f"   ⏱️  Time between scans: {time_diff}s")
-            
-            # Initialize stats for this artifact/language combo
-            key = f"{artifact}_{language}"
-            if key not in completion_stats:
-                completion_stats[key] = {
+    results = []
+    for doc in docs:
+        data = doc.to_dict() or {}
+        completions = data.get("completions", {})
+        artifacts = data.get("artifacts", {})
+        for artifact in artifacts:
+            for language in artifacts[artifact]:
+                total = artifacts[artifact][language]
+                completed = completions.get(artifact, {}).get(language, 0)
+                rate = (completed / total * 100) if total > 0 else 0
+                results.append({
                     "artifact": artifact,
                     "language": language,
-                    "total_listens": 0,
-                    "completed_listens": 0,
-                    "audio_length": audio_length
-                }
-            
-            completion_stats[key]["total_listens"] += 1
-            
-            # Check if they listened to 90%+ of the audio
-            if time_diff >= threshold:
-                completion_stats[key]["completed_listens"] += 1
-                print(f"   ✅ COMPLETED (time >= threshold)")
-            else:
-                print(f"   ❌ NOT COMPLETED (time < threshold)")
-                print(f"   📉 Listened to only {(time_diff/audio_length)*100:.1f}% of audio")
-    
-    # Calculate completion rate percentages
-    results = []
-    for key, stats in completion_stats.items():
-        completion_rate = 0
-        if stats["total_listens"] > 0:
-            completion_rate = (stats["completed_listens"] / stats["total_listens"]) * 100
-        
-        results.append({
-            "artifact": stats["artifact"],
-            "language": stats["language"],
-            "total_listens": stats["total_listens"],
-            "completed_listens": stats["completed_listens"],
-            "completion_rate": round(completion_rate, 2),
-            "audio_length_seconds": stats["audio_length"]
-        })
-    
-    # Sort by completion rate descending
+                    "total_scans": total,
+                    "completed_listens": completed,
+                    "completion_rate": round(rate, 2)
+                })
+    print(f"✅ Computed {len(results)} completion records.")
     results.sort(key=lambda x: x["completion_rate"], reverse=True)
-    
-    return {
-        "completion_rates": results,
-        "total_artifacts_tracked": len(results),
-        "user_uid": user["uid"]
-    }
+    return {"completion_rates": results, "user_uid": user["uid"]}
 
 
 @app.get("/analytics/completion-summary")
 def get_completion_summary(user=Depends(verify_firebase_token)):
-    """
-    Get overall completion rate across all artifacts/languages.
-    """
+    print(f"📊 [SUMMARY] Requested by UID: {user['uid']}")
     completion_data = get_completion_rates(user)
-    
+
     if not completion_data["completion_rates"]:
+        print("📭 No completion data found.")
         return {
             "overall_completion_rate": 0,
             "total_listens": 0,
             "completed_listens": 0,
             "user_uid": user["uid"]
         }
-    
-    total_listens = sum(item["total_listens"] for item in completion_data["completion_rates"])
+
+    total_listens = sum(item["total_scans"] for item in completion_data["completion_rates"])
     completed_listens = sum(item["completed_listens"] for item in completion_data["completion_rates"])
-    
     overall_rate = (completed_listens / total_listens * 100) if total_listens > 0 else 0
-    
+    print(f"📊 Overall completion: {overall_rate:.2f}% ({completed_listens}/{total_listens})")
+
     return {
         "overall_completion_rate": round(overall_rate, 2),
         "total_listens": total_listens,
@@ -350,20 +328,6 @@ def get_completion_summary(user=Depends(verify_firebase_token)):
         "by_artifact": completion_data["completion_rates"],
         "user_uid": user["uid"]
     }
-
-
-@app.post("/migrate_languages_to_language")
-def migrate_languages_to_language():
-    changed = []
-    for snap in db.collection("stored_data2").stream():
-        data = snap.to_dict() or {}
-        if "languages" in data and isinstance(data["languages"], dict):
-            ref = db.collection("stored_data2").document(snap.id)
-            ref.set({"language": data["languages"]}, merge=True)
-            ref.update({"languages": firestore.DELETE_FIELD})
-            changed.append(snap.id)
-    return {"migrated_docs": changed}
-
 
 # ----------------------------------------------------------------
 #  --- SERVER RUN ---
